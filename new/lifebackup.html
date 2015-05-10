@@ -1,0 +1,1178 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <style>
+      body {
+        margin: 0px;
+        padding: 0px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container"></div>
+    <script src="kinetic-v4.5.4.js"></script>
+    <script defer="defer">		
+	/*Life.html
+	Taylor Premo
+	--Overview--
+	variable map, age, mutation rate, population, animal size?
+	objects animal, food, water, lava, empty
+	animal must eat to live, must be in water to reproduce, must avoid lava, mustn't be too young or old to reproduce.
+	animal can walk forward, turn left, turn right, or no action
+	animal can see directly infront, and act based on sight.
+	array for each sight option, size of total age, with value for each action.
+		every age has a set action for every sight.
+
+	if animal reproduces, child inherets traits from both parents, and is born in the water.
+	*/
+	
+	/*
+		TODO:
+			explanation button
+			food moves?
+			follow animal on click
+			copy selected animal button
+				store animal in array, 
+				then you can generate a new map, 
+				with array as starting population.
+			some way to 'control'
+			hunger for kids
+			food depleted
+				trees
+				animals
+			
+		sidebar:
+			animalList - opens info ontop of all buttons but self, has next/prev & remove current buttons
+			copy Selected
+			new Random
+			controls - opens info ontop of map
+			help - opens info ontop of map
+	*/
+	
+	window.requestAnimFrame = (function(callback){
+        return window.requestAnimationFrame ||
+        window.webkitRequestAnimationFrame ||
+        window.mozRequestAnimationFrame ||
+        window.oRequestAnimationFrame ||
+        window.msRequestAnimationFrame ||
+        function callback (){
+            window.setTimeout(callback, 1000*60);
+        };
+    })();
+	
+	//variables
+	var gameSpeed = 500;
+	
+	var mapWidth = 50;//dimensions of map
+	var mapHeight = 30;
+	var boxSize = 15;
+	var sideBarWidth = 200;
+	
+	var blockTypes = 5; //empty, water, animal, food, lava
+	
+	var foodCount = 10;
+	var lavaCount = 20;
+	
+	var waterRate = 0.40;//precent of map is water
+	var waterSplitRate = 0.9;//likely hood water will be a 'lake'
+	
+	var population = 120;//fun stuff to change
+	var currentPopulation = population;
+	var age = 100;
+	var minAge = 20;
+	var maxAge = 100;
+	var hunger = 100;
+	var hungerReduce = 50;
+	var mutationRate = 0.05;
+	var dnaLength = age*blockTypes;
+	
+	var map = [];
+	var map2 = [];
+	for(var i = 0; i < mapWidth; i++){
+		map[i] = [];
+		map2[i] = [];
+		for(var j = 0; j < mapHeight; j++){
+			map[i][j] = newEmpty();
+			map2[i][j] = newEmpty();
+		}
+	}
+	
+	//functions	
+	
+	function checkMap(object){//returns number of given object in map
+		var iVar = 0;
+		for(var i = 0; i < mapWidth; i++){
+			for(var j = 0; j < mapHeight; j++){
+				if(map[i][j] && map[i][j].type == object) iVar++;
+			}
+		}
+		
+		return iVar;
+	}
+	
+	function checkAdjacent(x, y, key){//checks sqares adjacent to given, returns if object is adjacent to xy
+		if(y > 0)
+			if(map[x][y-1].type == key)
+				return true;
+		if(x < mapWidth-1)
+			if(map[x+1][y].type == key)
+				return true;
+		if(y < mapHeight-1)
+			if(map[x][y+1].type == key)
+				return true;
+		if(x > 0)
+			if(map[x-1][y].type == key)
+				return true;
+		
+		return false;
+	}
+	
+	function year(){
+		for(var i = 0; i < mapWidth; i++){
+			for(var j = 0; j < mapHeight; j++){//go through the grid
+				if(i > mapWidth)
+					var x;
+				while(map[i][j].type == 'animal'){//while current square is an animal
+					//check if animal should be dead
+					if(map[i][j].prev.type == 'lava' || //lava
+						map[i][j].age == age || //old
+						map[i][j].hunger == hunger){//starving
+						map[i][j] = map[i][j].prev;
+						currentPopulation--;
+						if(!(currentPopulation % 10))
+							console.log("Current Population: " + currentPopulation);
+					}
+					else{//alive
+						if(map[i][j].prev.type == 'food'){//let them eat if they are on food
+							map[i][j].hunger -= hungerReduce;
+						}
+						
+						map[i][j].age++;//age them a year
+						map[i][j].hunger++;//increase their hunger too
+						
+						if(map[i][j].hunger < 0){
+							map[i][j].hunger = 0;
+							//console.log("hunger = " + map[i][j].hunger);
+						}
+						
+						var newCoords = animalAction(i,j);
+						if(checkBaby(newCoords.i, newCoords.j)){//check for kids
+							currentPopulation++;
+							console.log("A baby has been born!");
+							if(!(currentPopulation % 10))
+								console.log("Current Population: " + currentPopulation);
+							if(currentPopulation > 600){
+								console.log("population control enabled");
+								map[newCoords.i][newCoords.j] = newLava();
+							}
+						}
+						
+						map[i][j].coords = newCoords;//upate their position
+						map[i][j].body = newBody(newCoords);
+						map[i][j].face = newFace(newCoords, map[i][j].direction);
+						
+						var move = map[i][j];//
+						if(map[i][j].prev)
+							map[i][j] = map[i][j].prev;//replace map with what is 'lower'
+						else
+							map[i][j] = newEmpty();
+						move.prev = map2[newCoords.i][newCoords.j];//update animals .prev
+						map2[newCoords.i][newCoords.j] = move;//move animal to new map.
+						
+						
+						//console.log("i: " + i + ", j: " + j);
+						//console.log("map[i][j]: " + map[i][j].type);
+						if(map[i][j].type != 'animal'){
+							break;
+						}
+						
+						if(i < mapWidth && map[i] != undefined){// && 
+							if(map[i][j].prev && map[i][j].prev.type){
+								//map[i][j] = map[i][j].prev; //check 'lower' animals
+							}
+						}
+						else{}
+							//map[i][j] = newEmpty();
+							
+						
+					}
+				}
+				if(map2[i][j].type != 'animal')
+					map2[i][j] = map[i][j];//move everything to new map
+				else{
+					var temp = map2[i][j];
+					while(temp.prev.type == 'animal'){
+						temp = temp.prev;
+					}
+					temp.prev = map[i][j];
+				}
+				
+				map[i][j] = newEmpty();//clear old map as we go
+				
+				
+			}
+		}
+		
+		var temp = map;//swap the maps
+		map = map2;
+		map2 = temp;
+	}
+	
+	function animalAction(i, j){//performs animals movements
+	
+		var direction = map[i][j].direction;//direction animal is facing
+		var check;
+		switch(direction){//look at square
+			case 0:
+				if(j == 0) check = map[i][mapHeight-1].type;
+				else check = map[i][j-1].type;
+				break;
+			case 1:
+				if(i == mapWidth-1) check = map[0][j].type;
+				else check = map[i+1][j].type;
+				break;
+			case 2:
+				if(j == mapHeight -1) check = map[i][0].type;
+				else check = map[i][j+1].type;
+				break;
+			case 3:
+				if(i == 0) check = map[mapWidth-1][j].type;
+				else check = map[i-1][j].type;
+				break;
+		}
+		
+		if(check == 'empty')//get the type for what the square is looking at.
+			check = 0;
+		if(check == 'water')
+			check = 1;
+		if(check == 'animal')
+			check = 2;
+		if(check == 'food')
+			check = 3;
+		if(check == 'lava')
+			check = 4;
+		
+		var action = map[i][j].dna[map[i][j].age + check*age];//offset dna based on age an block type.
+	
+		switch(action){
+			case 0://move forward
+				switch(direction){
+					case 0://move up
+						j -= 1;
+						if(j < 0)
+							j = mapHeight -1;
+						break;
+					case 1://move right
+						i += 1;
+						if (i > mapWidth -1)
+							i = 0;
+						break;
+					case 2://move down
+						j += 1;
+						if (j > mapHeight -1)
+							j = 0;
+						break;
+					case 3://move left
+						i -= 1;
+						if(i < 0)
+							i = mapWidth -1;
+						break;
+				}
+				break;
+			case 1://turn left
+				map[i][j].direction++;
+				if(map[i][j].direction > 3) map[i][j].direction = 0;
+				map[i][j].facePoints  = faceDirection(map[i][j].direction, {x: i, y: j});
+				break;
+			case 2://turn right
+				map[i][j].direction--;
+				if(map[i][j].direction < 0) map[i][j].direction = 3;
+				map[i][j].facePoints  = faceDirection(map[i][j].direction, {x: i, y: j});
+				break;
+			case 3://no action
+				break;
+		}
+		var returnVar = {i: i, j: j};//coord for new location
+		return returnVar;
+	}
+	
+	function checkBaby(x, y){
+		var bool = false;
+		//    if map[x][y] and it's type is animal OR map2's type is animal
+		if((map[x][y].prev && map[x][y].prev.type == 'animal') || map2[x][y].type == 'animal'){//if ontop of animal, new baby
+						if(checkAdjacent(x, y, 'water')){//must be next to water
+							if(map[x][y].age > minAge && map[x][y].prev.age > minAge){//must be of age
+								if(map[x][y].age < maxAge && map[x][y].prev.age < maxAge){//but not too old
+									var childDna = [];
+									var ran = Math.random() * mutationRate * 100;
+									for(var j = 0; j < dnaLength; j++){
+										if(!ran) dna[j] = Math.floor(Math.random() * 4);
+										else{
+											if(Math.floor(Math.random()*2)) childDna[j] = map[x][y].dna[j];
+											else childDna[j] = map[x][y].prev.dna[j];
+										}
+											
+										ran = Math.random() * mutationRate * 100;
+									}
+									
+									var side = Math.floor(Math.random() * 4);
+									
+									
+									while(!bool){
+										switch(side){
+											case 0:
+												if(y == 0) y = mapHeight -1;
+												if(map[x][y-1].type == 'water'){
+													
+													map[x][y-1] = newAnimal({x: x, y: y-1},//location
+																			0,//age
+																			Math.floor(Math.random()*4),//direction,
+																			childDna,//dna,
+																			0//hunger
+																			);
+													if(y == mapHeight-1) y = 0;
+													//console.log("x: " + x + ", y: " + y);
+													bool = true;
+												}
+												break;
+												
+											case 1:
+												if(x == mapWidth -1) x = 0;
+												if(map[x+1][y].type == 'water'){
+													
+													map[x+1][y] = newAnimal({x: x+1, y: y},//location
+																			0,//age
+																			Math.floor(Math.random()*4),//direction,
+																			childDna,//dna,
+																			0//hunger
+																			);
+													if(x == 0) x = mapWidth -1;
+													//console.log("x: " + x + ", y: " + y);
+													bool = true;
+												}
+												break;
+												
+											case 2:
+												if(y == mapHeight-1) y = 0;
+												if(map[x][y+1].type == 'water'){
+													
+													map[x][y+1] = newAnimal({x: x, y: y+1},//location
+																			0,//age
+																			Math.floor(Math.random()*4),//direction,
+																			childDna,//dna,
+																			0//hunger
+																			);
+													if(y == 0) y = mapHeight -1;
+													bool = true;
+													//console.log("x: " + x + ", y: " + y);
+												}
+												break;
+												
+											case 3:
+												if(x == 0) x = mapWidth -1;
+												if(map[x-1][y].type == 'water'){
+												
+													map[x-1][y] = newAnimal({x: x-1, y: y},//location
+																			0,//age
+																			Math.floor(Math.random()*4),//direction,
+																			childDna,//dna,
+																			0//hunger
+																			);
+													if(x == mapWidth -1) x = 0;
+													//console.log("x: " + x + ", y: " + y);
+													bool = true;
+												}
+												break;
+										}
+										
+										side = Math.floor(Math.random() * 4);
+										
+										if(!Math.floor(Math.random() * 100)) bool = true;
+									}
+								}
+							}
+						}
+					}
+					
+		return bool;
+	}
+	
+	function faceDirection(direction, locationVar){
+		var facePoints;
+		var x = locationVar.x;
+		var y = locationVar.y;
+		switch(direction){
+				case 0:
+					facePoints = [x * boxSize, y * boxSize, x * boxSize + boxSize, y * boxSize];
+					break;
+				case 1:
+					facePoints = [x * boxSize + boxSize, y * boxSize, x * boxSize + boxSize, y * boxSize + boxSize];
+					break;
+				case 2:
+					facePoints = [x * boxSize, y * boxSize + boxSize, x * boxSize + boxSize, y * boxSize + boxSize];
+					break;
+				case 3:
+					facePoints = [x * boxSize, y * boxSize, x * boxSize, y * boxSize + boxSize];
+					break;
+			}
+			
+		return facePoints;
+	}
+	
+	function newEmpty(){
+		return {type: 'empty'};
+	}
+	
+	function newAnimal(/*locationVar, age, direction, dna*/){
+		
+		var locationVar;//{x, y}
+		if(arguments[0]) locationVar = arguments[0];
+		else return 0;//always have x,y
+		
+		if(!locationVar.x){
+		//	return 0;
+		}
+		
+		var previous = map[locationVar.x][locationVar.y];//store previous item.
+		
+		var age = 0;
+		if(arguments[1]) age = arguments[1];
+		 
+		var direction;//directon face is pointing 0-4
+		if(arguments[2]) direction = arguments[2];
+		else direction = Math.floor(Math.random()*4);
+		
+		var facePoints = faceDirection(direction, locationVar);//coords for face shape
+		
+		var dna = [];//string for dna
+		if(arguments[3]) dna = arguments[3];
+		else{
+			for(var j = 0; j < dnaLength; j++){
+				dna[j] = Math.floor(Math.random() * 4);
+			}
+		}
+		
+		var hunger = 0;
+		if(arguments[4]) hunger = arguments[4];
+		
+		
+		var animal = { //everything put together
+			type: 'animal',
+			age: age,
+			coords: locationVar,
+			hunger: hunger,
+			direction: direction,
+			dna: dna,
+			body: new Kinetic.Rect({
+						x: locationVar.x * boxSize,
+						y: locationVar.y * boxSize,
+						width: boxSize,
+						height: boxSize,
+						fill: 'green',
+						stroke: 'blue',
+						strokeWidth: 0
+					}),
+			face: new Kinetic.Line({
+						points: facePoints,
+						stroke: 'red',
+						strokeWidth: 2,
+						lineCap: 'round',
+						lineJoin: 'round'
+					}),
+			prev: previous,
+		
+		};
+		
+		return animal;
+	}
+	
+	function newBody(coords){
+		var b = new Kinetic.Rect({
+						x: coords.i * boxSize,
+						y: coords.j * boxSize,
+						width: boxSize,
+						height: boxSize,
+						fill: 'green',
+						stroke: 'blue',
+						strokeWidth: 0
+					});
+					
+		return b;
+	}
+	
+	function newFace(coords, direction){
+		var lVar = {x: coords.i, y: coords.j};
+		var facePoints = faceDirection(direction, lVar);//coords for face shape
+	
+		var f = new Kinetic.Line({
+						points: facePoints,
+						stroke: 'red',
+						strokeWidth: 2,
+						lineCap: 'round',
+						lineJoin: 'round'
+					});
+					
+		return f;
+	}
+	
+	function newWater(x, y){
+		var water = {
+			type: 'water',
+			body:	new Kinetic.Rect({
+						x: x * boxSize,
+						y: y * boxSize,
+						width: boxSize,
+						height: boxSize,
+						fill: 'blue',
+						stroke: 'blue',
+						strokeWidth: 0
+					})
+		}
+		
+		return water;
+	}
+	
+	function newFood(x, y){
+		var food = {
+			type: 'food',
+			body:	new Kinetic.Rect({
+						x: x * boxSize,
+						y: y * boxSize,
+						width: boxSize,
+						height: boxSize,
+						fill: 'yellow',
+						stroke: 'blue',
+						strokeWidth: 0
+					})
+		}
+		
+		return food;
+	}
+	
+	function newLava(x, y){
+		var lava = {
+			type: 'lava',
+			body:	new Kinetic.Rect({
+						x: x * boxSize,
+						y: y * boxSize,
+						width: boxSize,
+						height: boxSize,
+						fill: 'red',
+						stroke: 'blue',
+						strokeWidth: 0
+					})
+		}
+		
+		return lava;
+	}
+	
+	function newButton(string){
+		var buttonBox = new Kinetic.Rect({
+			x: buttonX,
+			y: buttonY,
+			width: buttonWidth,
+			height: buttonHeight,
+			fill: buttonBg,
+			stroke: 'black',
+			strokeWidth: 2
+		});
+		
+		var buttonText = new Kinetic.Text({
+			x: buttonX,
+			y: buttonY,
+			width: buttonWidth,
+			text: string,
+			fontSize: 18,
+			fontFamily: 'Calibri',
+			fill: textColor,
+			padding: 5,
+			align: 'center'
+		});
+		
+		var button = {
+			box: buttonBox,
+			text: buttonText
+		};
+		
+		buttonY += buttonHeight + buttonSpace;
+		
+		sidebar.add(button.box);
+		sidebar.add(button.text);
+		
+		button.text.on('mouseover', function(){
+			document.body.style.cursor = 'pointer';
+		});
+		button.text.on('mouseout', function() {
+			document.body.style.cursor = 'default';
+		});
+		button.text.on('mousedown', function() {
+			buttonFunction(button.text.getText());
+		});
+		
+		button.box.on('mouseover', function(){
+			document.body.style.cursor = 'pointer';
+		});
+		button.box.on('mouseout', function() {
+			document.body.style.cursor = 'default';
+		});
+		button.box.on('mousedown', function() {
+			buttonFunction(button.text.getText());
+		});
+		
+		return button;
+	}
+	
+	function buttonFunction(key){
+		if(animalListButton)
+		if(key == animalListButton.text.getText()){//animalList
+			if(buttonBool[0]){
+				buttonBool[0] = false;
+			}
+			else{
+				buttonBool[0] = true;
+				buttonBool[3] = false;
+			}
+			
+			sideBox.box.setVisible(buttonBool[0]);
+			sideBox.text.setVisible(buttonBool[0]);
+			sideBox.text.setText(selectedAnimalString);
+			
+			sidebar.clear();
+			
+			sidebar.add(sideBox.box);
+			sidebar.add(sideBox.text);
+			stage.add(sidebar);
+			
+		}
+		if(copySelectedButton)
+		if(key == copySelectedButton.text.getText()){//copySelectedButton
+			
+		}
+		if(newRandomButton)
+		if(key == newRandomButton.text.getText()){//newRandomButton
+			newGame();
+		}
+				
+		if(editButton)
+		if(key == editButton.text.getText()){//editButton
+			if(buttonBool[3]){
+				buttonBool[3] = false;
+			}
+			else{
+				buttonBool[3] = true;
+				buttonBool[0] = false;
+			}
+			
+			sideBox.box.setVisible(buttonBool[3]);
+			sideBox.text.setVisible(buttonBool[3]);
+			sideBox.text.setText(editString);
+			
+			sidebar.clear();
+			
+			sidebar.add(sideBox.box);
+			sidebar.add(sideBox.text);
+			stage.add(sidebar);
+			
+		}
+		
+		if(controlsButton)
+		if(key == controlsButton.text.getText()){//controlsButton
+			if(buttonBool[4]){
+				buttonBool[4] = false;
+			}
+			else{
+				buttonBool[4] = true;
+				buttonBool[5] = false;
+			}
+			
+			bigBox.box.setVisible(buttonBool[4]);
+			bigBox.text.setVisible(buttonBool[4]);
+			bigBox.text.setText(controlString);
+			
+			sidebar.clear();
+			
+			sidebar.add(bigBox.box);
+			sidebar.add(bigBox.text);
+			stage.add(sidebar);
+		}
+		if(helpButton)
+		if(key == helpButton.text.getText()){//helpButton
+			if(buttonBool[5]){
+				buttonBool[5] = false;
+			}
+			else{
+				buttonBool[5] = true;
+				buttonBool[4] = false;
+			}
+			
+			
+			bigBox.box.setVisible(buttonBool[5]);
+			bigBox.text.setVisible(buttonBool[5]);
+			bigBox.text.setText(helpString);
+			
+			sidebar.clear();
+			
+			sidebar.add(bigBox.box);
+			sidebar.add(bigBox.text);
+			stage.add(sidebar);
+		}
+
+	}
+
+	function newGame(){
+		stage.clear();
+		
+		map = [];
+		for(var i = 0; i < mapWidth; i++){
+			map[i] = [];
+			for(var j = 0; j < mapHeight; j++){
+				map[i][j] = newEmpty();
+			}
+		}
+		
+		makeStage();
+		drawGrid();
+		drawSidebar();
+		generateWater();
+		generateFood();
+		generateLava();
+		generatePopulation();
+		
+		stage.add(grid);
+		stage.add(layer);
+		stage.add(sidebar);
+	}
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	//make stage
+	var stage = new Kinetic.Stage({
+			container: 'container',
+			width: mapWidth * boxSize + sideBarWidth,
+			height: mapHeight * boxSize
+		  });
+	var layer = new Kinetic.Layer();
+	var grid = new Kinetic.Layer();
+	var sidebar = new Kinetic.Layer();
+	function makeStage(){
+		stage = new Kinetic.Stage({
+			container: 'container',
+			width: mapWidth * boxSize + sideBarWidth,
+			height: mapHeight * boxSize
+		  });
+	layer = new Kinetic.Layer();
+	grid = new Kinetic.Layer();
+	sidebar = new Kinetic.Layer();
+	}
+	
+	//draw grid
+	var gridX = [];
+	var gridY = [];
+	
+	for(var i =0; i <= stage.getAttr('width') - sideBarWidth; i+=boxSize){
+		gridX[i] = new Kinetic.Line({
+			points: [i, 0, i, stage.getAttr('height')],
+			stroke: 'blue',
+			strokeWidth: 1,
+			lineCap: 'round',
+			lineJoin: 'round'
+		});
+		
+		grid.add(gridX[i]);
+	}
+	for(var i =0; i <= stage.getAttr('height'); i+=boxSize){
+		gridY[i] = new Kinetic.Line({
+			points: [0, i, stage.getAttr('width') - sideBarWidth, i],
+			stroke: 'blue',
+			strokeWidth: 1,
+			lineCap: 'round',
+			lineJoin: 'round'
+		});
+		
+		grid.add(gridY[i]);
+	}
+	function drawGrid(){
+	gridX = [];
+	gridY = [];
+	
+	for(var i =0; i <= stage.getAttr('width') - sideBarWidth; i+=boxSize){
+		gridX[i] = new Kinetic.Line({
+			points: [i, 0, i, stage.getAttr('height')],
+			stroke: 'blue',
+			strokeWidth: 1,
+			lineCap: 'round',
+			lineJoin: 'round'
+		});
+		
+		grid.add(gridX[i]);
+	}
+	for(var i =0; i <= stage.getAttr('height'); i+=boxSize){
+		gridY[i] = new Kinetic.Line({
+			points: [0, i, stage.getAttr('width') - sideBarWidth, i],
+			stroke: 'blue',
+			strokeWidth: 1,
+			lineCap: 'round',
+			lineJoin: 'round'
+		});
+		
+		grid.add(gridY[i]);
+	}
+	}
+	//draw sidebar
+		//strings
+	var helpString = "This is designed to be a sort of \'life\' simulator. \n" +
+						"\n" +
+						"The green squares are the animals, they have red faces, showing what they can see.\n" +
+						"They need to eat food to survive(yellow), avoid the lava(red), and reproduce to survive.\n" +
+						"\n" +
+						"In order to reproduce, the following must be true:\n" +
+						"Two animals must be in the same square.\n" +
+						"Both animals must be \'of age\', can\'t be too young or old.\n" +
+						"They must be next to an empty water block.\n" +
+						"The baby will be born into the water block.\n";
+						
+	var controlString = "There aren\'t any controls just yet.\n" +
+							":(\n";
+	
+	var selectedAnimals = [newAnimal({x:0, y:0})];
+	var selectedAnimalInt = 0;
+	var selectedAnimalString = "Animal #" + selectedAnimalInt + "\n" +
+								"coords: " + selectedAnimals[selectedAnimalInt].body.x + " " + selectedAnimals[selectedAnimalInt].body.y + "\n" +
+								"age: " + selectedAnimals[selectedAnimalInt].age + "\n" +
+								"hunger: " + selectedAnimals[selectedAnimalInt].hunger + "\n" +
+								"prev: "  + "\n";
+	var editString = '';
+	
+	
+	
+	
+	//generate buttons
+	var buttonSpace = 10;
+	var buttonX = stage.getAttr('width') - sideBarWidth + buttonSpace;
+	var buttonY = buttonSpace;
+	var buttonWidth = 150;
+	var buttonHeight = 50;
+	var buttonBg = '#CDCDCD';
+	var textColor = 'black';
+	var numButtons = 6; //animalList, copySelected, newRandom, edit, controls, help
+	var buttonBool = [false,false,false,false,false,false];
+	
+	{
+	var animalListButton = newButton('Currently Selected Animals');
+	var copySelectedButton = newButton('New Map With Saved Animals');
+	var newRandomButton = newButton('New Map With Random Animals');
+	var editButton = newButton('Edit Variables');
+	var controlsButton = newButton('Controls');
+	var helpButton = newButton('Help');
+	}
+	
+	//boxes for info
+	var bigBox = {
+		box: new Kinetic.Rect({
+			x: 0,
+			y: 0,
+			width: stage.getAttr('width') - sideBarWidth,
+			height: stage.getAttr('height'),
+			fill: buttonBg,
+			stroke: 'black',
+			strokeWidth: 2,
+			visible : false
+		}),
+		text: new Kinetic.Text({
+			x: 0,
+			y: buttonSpace,
+			width: stage.getAttr('width') - sideBarWidth,
+			text: '',
+			fontSize: 18,
+			fontFamily: 'Calibri',
+			fill: textColor,
+			padding: 5,
+			align: 'center',
+			visible : false
+		})
+	}; //controls, help
+	var sideBox = {
+		box: new Kinetic.Rect({
+			x: stage.getAttr('width') - sideBarWidth,
+			y: buttonHeight,
+			width: buttonWidth + 2*buttonSpace,
+			height: buttonY,
+			fill: buttonBg,
+			stroke: 'black',
+			strokeWidth: 2,
+			visible : false
+		}),
+		text: new Kinetic.Text({
+			x: stage.getAttr('width') - sideBarWidth,
+			y: buttonHeight,
+			width: buttonWidth,
+			text: '',
+			fontSize: 18,
+			fontFamily: 'Calibri',
+			fill: textColor,
+			padding: 5,
+			align: 'center',
+			visible : false
+		})
+	}; //animal List
+	
+	sidebar.add(bigBox.box);
+	sidebar.add(bigBox.text);
+	sidebar.add(sideBox.box);
+	sidebar.add(sideBox.text);
+	
+	function drawSidebar(){
+		buttonSpace = 10;
+		buttonX = stage.getAttr('width') - sideBarWidth + buttonSpace;
+		buttonY = buttonSpace;
+		buttonWidth = 150;
+		buttonHeight = 50;
+		buttonBg = '#CDCDCD';
+		textColor = 'black';
+		numButtons = 6; //animalList, copySelected, newRandom, edit, controls, help
+		buttonBool = [false,false,false,false,false,false];
+			
+		animalListButton = newButton('Currently Selected Animals');
+		copySelectedButton = newButton('New Map With Saved Animals');
+		newRandomButton = newButton('New Map With Random Animals');
+		editButton = newButton('Edit Variables');
+		controlsButton = newButton('Controls');
+		helpButton = newButton('Help');
+		
+		
+		bigBox = {
+		box: new Kinetic.Rect({
+			x: 0,
+			y: 0,
+			width: stage.getAttr('width') - sideBarWidth,
+			height: stage.getAttr('height'),
+			fill: buttonBg,
+			stroke: 'black',
+			strokeWidth: 2,
+			visible : false
+		}),
+		text: new Kinetic.Text({
+			x: 0,
+			y: buttonSpace,
+			width: stage.getAttr('width') - sideBarWidth,
+			text: '',
+			fontSize: 18,
+			fontFamily: 'Calibri',
+			fill: textColor,
+			padding: 5,
+			align: 'center',
+			visible : false
+		})
+	}; //controls, help
+		sideBox = {
+		box: new Kinetic.Rect({
+			x: stage.getAttr('width') - sideBarWidth,
+			y: buttonHeight,
+			width: buttonWidth + 2*buttonSpace,
+			height: buttonY,
+			fill: buttonBg,
+			stroke: 'black',
+			strokeWidth: 2,
+			visible : false
+		}),
+		text: new Kinetic.Text({
+			x: stage.getAttr('width') - sideBarWidth,
+			y: buttonHeight,
+			width: buttonWidth,
+			text: '',
+			fontSize: 18,
+			fontFamily: 'Calibri',
+			fill: textColor,
+			padding: 5,
+			align: 'center',
+			visible : false
+		})
+	}; //animal List
+	
+		sidebar.add(bigBox.box);
+		sidebar.add(bigBox.text);
+		sidebar.add(sideBox.box);
+		sidebar.add(sideBox.text);
+	}
+	
+	//generate water
+	for(var i = 0; i < mapWidth*mapHeight*waterRate-1; i++){
+		var x = Math.floor(Math.random()*mapWidth);
+		var y = Math.floor(Math.random()*mapHeight);
+		var newLake = false;
+		if(Math.floor(Math.random()/waterSplitRate == 0)) newLake = true;
+		
+		if(!newLake){
+			while(!checkAdjacent(x, y, 'water') && Math.floor(Math.random()*100) != 0){
+				x = Math.floor(Math.random()*mapWidth);
+				y = Math.floor(Math.random()*mapHeight);
+			}
+		}
+		else{
+			while(map[x][y].type != 'empty'){
+				x = Math.floor(Math.random()*mapWidth);
+				y = Math.floor(Math.random()*mapHeight);
+			}
+		}
+		
+		map[x][y] = newWater(x,y);
+		
+		layer.add(map[x][y].body);
+	}
+	
+	function generateWater(){
+		for(var i = 0; i < mapWidth*mapHeight*waterRate-1; i++){
+			var x = Math.floor(Math.random()*mapWidth);
+			var y = Math.floor(Math.random()*mapHeight);
+			var newLake = false;
+			if(Math.floor(Math.random()/waterSplitRate == 0)) newLake = true;
+			
+			if(!newLake){
+				while(!checkAdjacent(x, y, 'water') && Math.floor(Math.random()*100) != 0){
+					x = Math.floor(Math.random()*mapWidth);
+					y = Math.floor(Math.random()*mapHeight);
+				}
+			}
+			else{
+				while(map[x][y].type != 'empty'){
+					x = Math.floor(Math.random()*mapWidth);
+					y = Math.floor(Math.random()*mapHeight);
+				}
+			}
+			
+			map[x][y] = newWater(x,y);
+			
+			layer.add(map[x][y].body);
+		}
+	}
+	//generate food
+	for(var i = 0; i < foodCount; i++){
+		var x = Math.floor(Math.random()*mapWidth);
+		var y = Math.floor(Math.random()*mapHeight);
+		
+		while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+				var x = Math.floor(Math.random()*mapWidth);
+				var y = Math.floor(Math.random()*mapHeight);
+		}
+		
+		map[x][y] = newFood(x,y);
+		layer.add(map[x][y].body);
+	}
+	
+	function generateFood(){
+		for(var i = 0; i < foodCount; i++){
+			var x = Math.floor(Math.random()*mapWidth);
+			var y = Math.floor(Math.random()*mapHeight);
+			
+			while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+					var x = Math.floor(Math.random()*mapWidth);
+					var y = Math.floor(Math.random()*mapHeight);
+			}
+			
+			map[x][y] = newFood(x,y);
+			layer.add(map[x][y].body);
+		}
+	}
+	//generate lava
+	for(var i = 0; i < lavaCount; i++){
+		var x = Math.floor(Math.random()*mapWidth);
+		var y = Math.floor(Math.random()*mapHeight);
+		
+		while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+				var x = Math.floor(Math.random()*mapWidth);
+				var y = Math.floor(Math.random()*mapHeight);
+		}
+		
+		map[x][y] = newLava(x,y);
+		layer.add(map[x][y].body);
+	}
+	
+	function generateLava(){
+		for(var i = 0; i < lavaCount; i++){
+			var x = Math.floor(Math.random()*mapWidth);
+			var y = Math.floor(Math.random()*mapHeight);
+			
+			while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+					var x = Math.floor(Math.random()*mapWidth);
+					var y = Math.floor(Math.random()*mapHeight);
+			}
+			
+			map[x][y] = newLava(x,y);
+			layer.add(map[x][y].body);
+		}
+	}
+	//generate population
+	var Empty = checkMap('empty');
+	if(Empty >= population){
+		for(var i = 0; i < population; i++){
+			var x = Math.floor(Math.random()*mapWidth);
+			var y = Math.floor(Math.random()*mapHeight);
+			
+			while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+				var x = Math.floor(Math.random()*mapWidth);
+				var y = Math.floor(Math.random()*mapHeight);
+			}
+			
+			var randomVar = {x: x, y: y};
+			map[x][y] = newAnimal(randomVar);
+			layer.add(map[x][y].body);
+			layer.add(map[x][y].face);
+		}
+	}
+	
+	function generatePopulation(){
+		var Empty = checkMap('empty');
+		if(Empty >= population){
+			for(var i = 0; i < population; i++){
+				var x = Math.floor(Math.random()*mapWidth);
+				var y = Math.floor(Math.random()*mapHeight);
+				
+				while(map[x][y] && map[x][y].type && Math.floor(Math.random()*100)){
+					var x = Math.floor(Math.random()*mapWidth);
+					var y = Math.floor(Math.random()*mapHeight);
+				}
+				
+				var randomVar = {x: x, y: y};
+				map[x][y] = newAnimal(randomVar);
+				layer.add(map[x][y].body);
+				layer.add(map[x][y].face);
+			}
+		}
+	}
+	
+	stage.add(grid);
+	stage.add(layer);
+	stage.add(sidebar);
+	
+	
+	
+	//var t = 0;
+	function gameLoop(){
+		layer.clear();
+		layer.removeChildren();
+		year();
+		for(var i = 0; i < mapWidth; i++){
+			for(var j = 0; j < mapHeight; j++){
+				if(map[i][j].type == 'animal'){
+					layer.add(map[i][j].body);
+					layer.add(map[i][j].face);
+				}
+				if(map[i][j].type == 'water' || map[i][j].type == 'food' || map[i][j].type == 'lava'){
+					layer.add(map[i][j].body);
+				}
+			}
+		}
+		layer.draw();
+		
+		window.setTimeout("requestAnimFrame(function(){gameLoop();})", 1000 / gameSpeed);
+	}
+	
+	window.onload = function(){
+		newGame();
+		requestAnimFrame(function(){
+            gameLoop();
+        });
+	}
+	
+    </script>
+  </body>
+</html>
